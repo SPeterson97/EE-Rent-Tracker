@@ -1,5 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "@prisma/client";
+import { env } from "./env.js";
 
 /**
  * Two clients, because the database enforces isolation by ROLE.
@@ -16,12 +17,6 @@ import { Prisma, PrismaClient } from "@prisma/client";
  * See MIGRATIONS.md for why the ownership split is what makes RLS real.
  */
 
-function required(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is not set`);
-  return value;
-}
-
 function makeClient(connectionString: string): PrismaClient {
   return new PrismaClient({
     adapter: new PrismaPg({ connectionString }),
@@ -33,12 +28,12 @@ let _ownerDb: PrismaClient | undefined;
 
 /** RLS-constrained client. Do not query this directly — use `asUser()`. */
 export function appDb(): PrismaClient {
-  return (_appDb ??= makeClient(required("APP_DATABASE_URL")));
+  return (_appDb ??= makeClient(env().APP_DATABASE_URL));
 }
 
 /** RLS-exempt client. Justify every call site. */
 export function ownerDb(): PrismaClient {
-  return (_ownerDb ??= makeClient(required("DATABASE_URL")));
+  return (_ownerDb ??= makeClient(env().DATABASE_URL));
 }
 
 /**

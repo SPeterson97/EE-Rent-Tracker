@@ -158,6 +158,7 @@ model AppUser {
   invitesSent      Invitation[]      @relation("InvitationSender")
   invitesAccepted  Invitation[]      @relation("InvitationAcceptor")
   notifications    NotificationLog[]
+  sessions         Session[]
 
   /// Maintained by the app.touch_updated_at() trigger, which is
   /// authoritative so raw SQL updates are covered too.
@@ -180,6 +181,34 @@ model AuthCode {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@map("auth_code")
+}
+
+/// Opaque server-side sessions rather than JWTs. This application moves money,
+/// so revocation has to be immediate and certain — a stolen JWT stays valid
+/// until it expires and there is nothing to delete. Only the token hash is
+/// stored, so a database leak does not yield usable sessions.
+model Session {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  /// Refreshed on use, for idle-timeout and "your active sessions" UI.
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  userAgent  String?  @map("user_agent")
+  createdIp  String?  @map("created_ip") @db.Inet
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([userId])
+  @@map("session")
 }
 
 /// Tenants never self-register. An accepted invitation is the only way a tenant

@@ -13,16 +13,16 @@ from (
   select 'check constraints'  as label,
          (select count(*) from pg_constraint
            where contype = 'c' and connamespace = 'public'::regnamespace) as actual,
-         26 as expected
+         27 as expected
   union all
   select 'partial indexes',
          (select count(*) from pg_index i
             join pg_class c on c.oid = i.indexrelid
             join pg_namespace n on n.oid = c.relnamespace
-           where n.nspname = 'public' and i.indpred is not null), 11
+           where n.nspname = 'public' and i.indpred is not null), 13
   union all
   select 'triggers',
-         (select count(*) from pg_trigger where not tgisinternal), 22
+         (select count(*) from pg_trigger where not tgisinternal), 23
   union all
   select 'tables with RLS enabled',
          (select count(*) from pg_class c

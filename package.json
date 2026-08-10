@@ -8,7 +8,9 @@
     "db:verify": "set -a && . ${ENV_FILE:-./.env} && set +a && psql \"$DATABASE_URL\" -f db/test/verify_objects.sql",
     "db:seed": "set -a && . ${ENV_FILE:-./.env} && set +a && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f db/test/0001_seed.sql",
     "db:test": "set -a && . ${ENV_FILE:-./.env} && set +a && psql \"$DATABASE_URL\" -f db/test/0002_constraints.sql && psql \"$APP_DATABASE_URL\" -f db/test/0003_rls.sql",
-    "db:check": "node --env-file=${ENV_FILE:-.env} node_modules/.bin/tsx src/db.check.ts"
+    "db:check": "node --env-file=${ENV_FILE:-.env} node_modules/.bin/tsx src/db.check.ts",
+    "auth:check": "node --env-file=${ENV_FILE:-.env} node_modules/.bin/tsx src/auth.check.ts",
+    "typecheck": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
