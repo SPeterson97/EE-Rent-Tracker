@@ -87,9 +87,13 @@ The script is idempotent — existing roles are left alone, so it is safe to
 re-run after adding a database. It creates both roles, transfers database
 ownership to `ee_owner`, grants `ee_app` DML but explicitly **not** `CREATE` on
 `public`, and sets default privileges so tables from future migrations are
-reachable automatically. It ends by printing three assertions: both roles show
-`superuser=f, bypasses_rls=f`, the database owner is `ee_owner`, and
-`ee_app.can_create_objects` is `f`.
+reachable automatically. It ends by printing four assertions: both roles show
+`superuser=f, bypasses_rls=f`, the database owner is not `ee_app`,
+`ee_app.can_create_objects` is `f`, and **no table is owned by `ee_app`**.
+
+On a managed provider the owner role already exists, so pass `-v
+owner_role=<their_role>` and omit `owner_password` — see [Neon](#neon) below.
+Statements needing superuser degrade to a NOTICE rather than aborting.
 
 Run it against the **shadow database too** — Prisma needs `ee_owner` to own it:
 
@@ -118,13 +122,89 @@ alter role ee_app password 'new-password';
 Then update `APP_DATABASE_URL`. Existing pooled connections survive until they
 are recycled, so expect a brief window where both work.
 
-### Managed Postgres
+### Neon
 
-On Neon, RDS, or similar you generally cannot create a true superuser, but you
-do not need one — the provider's default role can create both of these. On
-Supabase, reuse its existing `authenticated`/`service_role` split rather than
-adding a third pair. What matters everywhere is that **the role the application
-connects as does not own the tables**.
+> Written from Prisma 7 + PgBouncer + Neon's role model, and validated locally
+> against a simulated Neon role topology (pre-existing owner role, `ee_app`
+> created alongside it, migration applied as the provider's owner). Not yet run
+> against a real Neon project — confirm with `npm run db:verify` and the RLS
+> suite once provisioned.
+
+**1. Do not create `ee_owner` on Neon.** Neon provisions `neondb_owner` and that
+role already owns every table. Creating a second owner is redundant and will
+fight the provider. Reuse it:
+
+```bash
+psql -d ee_rent_tracker \
+  -v owner_role=neondb_owner \
+  -v app_password="$EE_APP_PASSWORD" \
+  -v ON_ERROR_STOP=1 \
+  -f db/sql/0000_roles.sql
+```
+
+`owner_password` is deliberately omitted — the script skips creating a role that
+already exists. `ALTER ROLE … NOBYPASSRLS` requires superuser and will print a
+NOTICE and continue on Neon; that's expected, and the script's closing
+verification queries are what actually confirm the state.
+
+**2. The Neon-specific trap.** The connection string Neon shows you in the
+dashboard is `neondb_owner` — the table owner. Paste that into your application
+and **every RLS policy silently stops applying.** No error, no warning. The
+dashboard string belongs in `DATABASE_URL` (migrations only); the app gets
+`APP_DATABASE_URL` built from `ee_app`.
+
+**3. Pooled vs direct endpoints.** Neon exposes two hosts; the pooled one has
+`-pooler` in the hostname. PgBouncer in transaction mode breaks DDL, advisory
+locks, and prepared statements, so **migrations must use the direct endpoint**.
+
+Prisma 7 makes this structurally clean: the CLI and the runtime client no longer
+share a connection config, so there's nothing to reconcile. The `directUrl`
+datasource field that older Prisma versions needed **does not exist in v7** —
+`Datasource` accepts only `url` and `shadowDatabaseUrl`.
+
+| Consumer | Configured in | Endpoint |
+|---|---|---|
+| `prisma migrate` / `introspect` | `prisma.config.ts` → `datasource.url` | **direct** |
+| `PrismaClient` at runtime | driver adapter | **pooled** |
+
+All Neon URLs need `?sslmode=require`.
+
+```bash
+# .env — note the -pooler host on the app URL only
+DATABASE_URL="postgresql://neondb_owner:...@ep-xxx.us-east-2.aws.neon.tech/ee_rent_tracker?sslmode=require"
+SHADOW_DATABASE_URL="postgresql://neondb_owner:...@ep-xxx.us-east-2.aws.neon.tech/ee_rent_tracker_shadow?sslmode=require"
+APP_DATABASE_URL="postgresql://ee_app:...@ep-xxx-pooler.us-east-2.aws.neon.tech/ee_rent_tracker?sslmode=require"
+```
+
+**4. Shadow database.** Only `prisma migrate dev` needs one — `migrate deploy`
+does not, so **production never needs a shadow database**. For development
+against Neon, create a second database in the same project, or point
+`SHADOW_DATABASE_URL` at a Neon branch.
+
+**5. Runtime adapter.** Prisma 7 requires a driver adapter; pick by deployment
+target, both at 7.9.1:
+
+| Package | Transport | Use when |
+|---|---|---|
+| `@prisma/adapter-pg` | node-postgres over TCP | long-lived Node server — **default choice** |
+| `@prisma/adapter-neon` | Neon serverless driver over WebSockets | Vercel Edge / serverless without raw TCP |
+
+The `asUser()` transaction wrapper above is unchanged either way — it is what
+carries `app.current_user_id` through the pooler safely.
+
+**6. Scale to zero.** Neon idles compute down, so the first connection after a
+quiet period pays a cold start. That matters for the nightly charge-generation
+and late-fee jobs: give them generous connect timeouts rather than tight ones.
+
+**7. Extensions.** `citext` and `pgcrypto` are both available on Neon, so the
+`CREATE EXTENSION` statements in migration `0001_init` apply unchanged.
+
+### Other managed providers
+
+The same rule governs everywhere: **the role the application connects as must
+not own the tables.** On RDS, create `ee_app` alongside the master user and pass
+`-v owner_role=<master_user>`. On Supabase, reuse the existing
+`authenticated` / `service_role` split rather than adding a third pair.
 
 Because Prisma pools connections, the user context must be set **per
 transaction**, never per connection, or it leaks to the next request that
