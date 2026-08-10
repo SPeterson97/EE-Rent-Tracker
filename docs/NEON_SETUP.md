@@ -52,7 +52,9 @@ There is a **connection pooling** toggle. You need **both** forms:
 | **off** (direct) | `ep-cool-name-123456.us-east-2.aws.neon.tech` | `DATABASE_URL` — migrations |
 | **on** (pooled) | `ep-cool-name-123456-**pooler**.us-east-2.aws.neon.tech` | base for `APP_DATABASE_URL` — runtime |
 
-Both end in `?sslmode=require`. Keep it.
+Neon hands these out with `?sslmode=require&channel_binding=require`. **Change
+`require` to `verify-full`** — see [TLS](#tls-use-verify-full-not-require) below
+for why. Keep `channel_binding=require`.
 
 > Migrations **must** use the direct host. PgBouncer in transaction mode breaks
 > DDL, advisory locks, and prepared statements.
@@ -126,13 +128,17 @@ of git.
 ```bash
 cat > .env.neon <<'EOF'
 # DIRECT host (no -pooler) — migrations and psql
-DATABASE_URL="postgresql://neondb_owner:PASSWORD@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require"
+DATABASE_URL="postgresql://neondb_owner:PASSWORD@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=verify-full&channel_binding=require"
 
 # POOLED host (-pooler) as ee_app — the running application
-APP_DATABASE_URL="postgresql://ee_app:APP_PASSWORD@ep-xxx-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
+APP_DATABASE_URL="postgresql://ee_app:APP_PASSWORD@ep-xxx-pooler.us-east-2.aws.neon.tech/neondb?sslmode=verify-full&channel_binding=require"
 
 # Only needed if you run `prisma migrate dev` against Neon
-# SHADOW_DATABASE_URL="postgresql://neondb_owner:PASSWORD@ep-xxx.us-east-2.aws.neon.tech/ee_rent_tracker_shadow?sslmode=require"
+# SHADOW_DATABASE_URL="postgresql://neondb_owner:PASSWORD@ep-xxx.us-east-2.aws.neon.tech/ee_rent_tracker_shadow?sslmode=verify-full"
+
+# libpq (psql) needs an explicit root cert for verify-full; `system` uses the OS
+# trust store. node-postgres ignores this and uses Node's bundled CA bundle.
+PGSSLROOTCERT=system
 EOF
 ```
 
@@ -218,3 +224,67 @@ inherited by the branch, so `ee_app` comes along with it.
 **Rotating the app password.** `alter role ee_app password '...'` via psql, then
 update `APP_DATABASE_URL`. Pooled connections survive until recycled, so both
 work briefly.
+
+---
+
+## TLS: use `verify-full`, not `require`
+
+Neon issues connection strings with `sslmode=require`. **Change it to
+`verify-full`.** `require` encrypts the connection but does not verify the
+server's certificate, so it does not protect against an active
+machine-in-the-middle.
+
+There is also a moving target. `node-postgres` currently applies verification to
+`sslmode=require` that is *stronger* than libpq's, and warns that it will drop
+to libpq semantics in pg v9:
+
+```
+In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these
+modes will adopt standard libpq semantics, which have weaker security guarantees.
+```
+
+Leaving `require` in place means a routine dependency bump silently downgrades
+your transport security. `verify-full` is explicit and stable, and it also
+silences the warning.
+
+**The catch:** the three tools disagree about where the root certificate comes
+from, and the obvious fix breaks one of them.
+
+| Consumer | Setting | Result |
+|---|---|---|
+| `psql` | `sslmode=verify-full` alone | **fails** — wants `~/.postgresql/root.crt` |
+| `psql` | + `PGSSLROOTCERT=system` | works — uses OS trust store |
+| `node-postgres` | `sslmode=verify-full` | works — uses Node's bundled CAs |
+| `node-postgres` | `sslrootcert=system` **in the URL** | **crashes** — tries to open a file named `system` |
+| Prisma migrate engine | `sslmode=verify-full` | works |
+
+So put `sslmode=verify-full` in the URL and supply the root cert to libpq
+through the **environment**, never the query string. `node-postgres` ignores
+`PGSSLROOTCERT`, so one env file serves all three:
+
+```bash
+DATABASE_URL="...?sslmode=verify-full&channel_binding=require"
+APP_DATABASE_URL="...?sslmode=verify-full&channel_binding=require"
+PGSSLROOTCERT=system
+```
+
+Verified against Neon: `migrate status`, `db:verify` 6/6, `db:check` 11/11,
+`db:test` 22/22, and zero SSL warnings.
+
+## Do not `source` the Neon env into your shell
+
+Use the `ENV_FILE=` prefix per command:
+
+```bash
+ENV_FILE=.env.neon npm run db:verify     # correct
+```
+
+```bash
+set -a && . ./.env.neon && set +a        # DON'T
+npm run db:verify                        # may still hit Neon
+```
+
+`node --env-file` does **not** overwrite variables already present in the
+environment, so a sourced `APP_DATABASE_URL` wins over the one in `.env`. You
+end up running "local" commands against Neon without any indication. Keep the
+selection explicit and per-invocation.
