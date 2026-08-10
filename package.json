@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "description": "Rent, utility, and payment tracking for small landlords.",
   "scripts": {
+    "db:roles": "psql -d \"${PGDATABASE:-ee_rent_tracker}\" -v owner_password=\"$EE_OWNER_PASSWORD\" -v app_password=\"$EE_APP_PASSWORD\" -v ON_ERROR_STOP=1 -f db/sql/0000_roles.sql",
     "db:migrate": "prisma migrate deploy",
+    "db:verify": "set -a && . ./.env && set +a && psql \"$DATABASE_URL\" -f db/test/verify_objects.sql",
     "db:seed": "set -a && . ./.env && set +a && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f db/test/0001_seed.sql",
-    "db:test": "set -a && . ./.env && set +a && psql \"$DATABASE_URL\" -f db/test/0002_constraints.sql && psql \"$APP_DATABASE_URL\" -f db/test/0003_rls.sql",
-    "db:verify": "set -a && . ./.env && set +a && psql \"$DATABASE_URL\" -f db/test/verify_objects.sql"
+    "db:test": "set -a && . ./.env && set +a && psql \"$DATABASE_URL\" -f db/test/0002_constraints.sql && psql \"$APP_DATABASE_URL\" -f db/test/0003_rls.sql"
   },
   "repository": {
     "type": "git",

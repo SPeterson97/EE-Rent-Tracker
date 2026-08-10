@@ -50,16 +50,81 @@ it reads.
 
 ## Roles
 
-Two roles, and the distinction is load-bearing:
+Two roles, and the distinction is the entire basis of tenant isolation:
 
-| Role | Used by | RLS |
-|---|---|---|
-| `ee_owner` | migrations, trusted server-side jobs | **bypassed** (owns the tables) |
-| `ee_app` | the running application | **enforced** |
+| Role | Used by | Owns tables | RLS |
+|---|---|---|---|
+| `ee_owner` | migrations, trusted server-side jobs | yes | **bypassed** |
+| `ee_app` | the running application | no | **enforced** |
+
+Postgres exempts a table's owner from that table's RLS policies. Neither role is
+a superuser and neither has `BYPASSRLS` — `ee_owner`'s exemption comes purely
+from ownership, which keeps it scoped to this schema.
 
 The app connects as `ee_app` via `APP_DATABASE_URL`. Connecting as `ee_owner`
-disables every policy — verified: with no user context, `ee_owner` sees 2 leases
-and `ee_app` sees 0.
+disables every policy **silently** — nothing errors, queries just start
+returning other landlords' rows. Verified on this schema: with no user context
+set, `ee_owner` sees 2 leases and `ee_app` sees 0.
+
+### Creating them
+
+Roles are cluster-wide rather than per-database, so this is a one-time bootstrap
+step that cannot live in a Prisma migration. Run it **before** the first
+migration, once per Postgres server:
+
+```bash
+export EE_OWNER_PASSWORD='...'   # not in git, not in .env.example
+export EE_APP_PASSWORD='...'
+
+psql -d ee_rent_tracker \
+  -v owner_password="$EE_OWNER_PASSWORD" \
+  -v app_password="$EE_APP_PASSWORD" \
+  -v ON_ERROR_STOP=1 \
+  -f db/sql/0000_roles.sql
+```
+
+The script is idempotent — existing roles are left alone, so it is safe to
+re-run after adding a database. It creates both roles, transfers database
+ownership to `ee_owner`, grants `ee_app` DML but explicitly **not** `CREATE` on
+`public`, and sets default privileges so tables from future migrations are
+reachable automatically. It ends by printing three assertions: both roles show
+`superuser=f, bypasses_rls=f`, the database owner is `ee_owner`, and
+`ee_app.can_create_objects` is `f`.
+
+Run it against the **shadow database too** — Prisma needs `ee_owner` to own it:
+
+```bash
+psql -d ee_rent_tracker_shadow \
+  -v owner_password="$EE_OWNER_PASSWORD" -v app_password="$EE_APP_PASSWORD" \
+  -f db/sql/0000_roles.sql
+```
+
+### Why migrations must run as `ee_owner`
+
+`ALTER DEFAULT PRIVILEGES` only applies to objects created by the role it was
+declared for. Applying a migration as any other role produces tables that
+`ee_app` has no grants on at all, and the app fails with permission errors that
+look nothing like the actual cause.
+
+### Rotating a password
+
+The bootstrap script never overwrites an existing role's password. Do it
+deliberately:
+
+```sql
+alter role ee_app password 'new-password';
+```
+
+Then update `APP_DATABASE_URL`. Existing pooled connections survive until they
+are recycled, so expect a brief window where both work.
+
+### Managed Postgres
+
+On Neon, RDS, or similar you generally cannot create a true superuser, but you
+do not need one — the provider's default role can create both of these. On
+Supabase, reuse its existing `authenticated`/`service_role` split rather than
+adding a third pair. What matters everywhere is that **the role the application
+connects as does not own the tables**.
 
 Because Prisma pools connections, the user context must be set **per
 transaction**, never per connection, or it leaks to the next request that
@@ -89,10 +154,24 @@ its own authorization checks.
 
 ```bash
 brew install postgresql@16 && brew services start postgresql@16
+export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"   # keg-only formula
+
 createdb ee_rent_tracker && createdb ee_rent_tracker_shadow
-# create ee_owner / ee_app roles, then:
-cp .env.example .env    # fill in real passwords
-npm run db:migrate
+
+# Roles — see "Creating them" above. Both databases.
+export EE_OWNER_PASSWORD='...' EE_APP_PASSWORD='...'
+for db in ee_rent_tracker ee_rent_tracker_shadow; do
+  psql -d "$db" -v owner_password="$EE_OWNER_PASSWORD" \
+       -v app_password="$EE_APP_PASSWORD" -v ON_ERROR_STOP=1 \
+       -f db/sql/0000_roles.sql
+done
+
+cp .env.example .env    # replace CHANGEME with the passwords above
+npm run db:migrate      # applies as ee_owner
+npm run db:verify       # asserts all 57 safety objects are present
 npm run db:seed         # two isolated orgs for manual poking
-npm run db:test         # constraint rejection + RLS isolation suites
+npm run db:test         # 22 constraint rejections + RLS isolation
 ```
+
+Verified end to end on a fresh database: roles → migrate → all six object
+counts `ok`, no views missing `security_invoker`.
