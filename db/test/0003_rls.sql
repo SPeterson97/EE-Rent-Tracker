@@ -67,7 +67,17 @@ select 'Tam sees co-tenant Rae on lease', count(*)
   from lease_tenant where user_id = '44444444-4444-4444-4444-444444444444'
 union all
 select 'Tam sees Quinn on lease B',       count(*)
-  from lease_tenant where user_id = '55555555-5555-5555-5555-555555555555';
+  from lease_tenant where user_id = '55555555-5555-5555-5555-555555555555'
+union all
+-- Tenants hold no org membership, so unit/property visibility has to come from
+-- their lease. Without it, lease.unit reads back NULL through a required
+-- relation. Regression guard for migration 0004.
+select 'Tam sees her own unit (want 1)',  count(*) from unit
+union all
+select 'Tam sees her property (want 1)',  count(*) from property
+union all
+select 'Tam sees Bob''s property',        count(*)
+  from property where id = 'b0000000-0000-0000-0000-000000000001';
 
 \echo ''
 \echo '=== lease_balance view honours RLS (security_invoker) ==='

@@ -10,7 +10,9 @@
     "db:test": "set -a && . ${ENV_FILE:-./.env} && set +a && psql \"$DATABASE_URL\" -f db/test/0002_constraints.sql && psql \"$APP_DATABASE_URL\" -f db/test/0003_rls.sql",
     "db:check": "node --env-file=${ENV_FILE:-.env} node_modules/.bin/tsx src/db.check.ts",
     "auth:check": "node --env-file=${ENV_FILE:-.env} node_modules/.bin/tsx src/auth.check.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "http:check": "node --env-file=${ENV_FILE:-.env} node_modules/.bin/tsx src/http.check.ts",
+    "dev": "node --env-file=${ENV_FILE:-.env} node_modules/.bin/tsx watch src/http/server.ts"
   },
   "repository": {
     "type": "git",
