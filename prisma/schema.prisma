@@ -1,0 +1,695 @@
+// EE Rent Tracker — Prisma data model.
+//
+// This file is only ONE OF TWO LAYERS. Prisma cannot express CHECK constraints,
+// triggers, partial unique indexes, views, or row level security, and this
+// schema depends on all of them. Those live in hand-written SQL appended to the
+// generated migrations — see db/migrations/0001_init.sql and MIGRATIONS.md.
+//
+// Always create migrations with:  prisma migrate dev --create-only
+// then append the SQL layer before applying. Never use `prisma db push` here:
+// it will produce a database missing every safety guarantee.
+//
+// Money is BigInt cents throughout. Billing boundaries are @db.Date because
+// "due on the 5th" is a calendar fact in the property's timezone, not an
+// instant. Everything else is @db.Timestamptz.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions", "views"]
+}
+
+// Prisma 7 moved connection URLs out of the schema; they live in
+// prisma.config.ts at the repo root.
+datasource db {
+  provider   = "postgresql"
+  extensions = [citext, pgcrypto]
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum OrgRole {
+  owner
+  staff
+
+  @@map("org_role")
+}
+
+enum PropertyStatus {
+  active
+  archived
+
+  @@map("property_status")
+}
+
+enum LeaseStatus {
+  draft
+  active
+  ended
+
+  @@map("lease_status")
+}
+
+enum ChargeType {
+  rent
+  water
+  late_fee
+  deposit
+  other
+
+  @@map("charge_type")
+}
+
+enum SplitMode {
+  percent
+  fixed
+
+  @@map("split_mode")
+}
+
+enum SplitStatus {
+  proposed
+  active
+  rejected
+  superseded
+
+  @@map("split_status")
+}
+
+enum EntryType {
+  charge
+  payment
+  credit
+  waiver
+  reversal
+
+  @@map("entry_type")
+}
+
+enum PaymentMethodKind {
+  us_bank_account
+  card
+
+  @@map("payment_method_kind")
+}
+
+enum PaymentChannel {
+  ach
+  card
+  check
+  cash
+  other_manual
+
+  @@map("payment_channel")
+}
+
+enum PaymentStatus {
+  pending
+  processing
+  succeeded
+  failed
+  reversed
+
+  @@map("payment_status")
+}
+
+enum LateFeeKind {
+  flat
+  percent_of_rent
+
+  @@map("late_fee_kind")
+}
+
+enum ConnectStatus {
+  not_started
+  pending
+  active
+  restricted
+
+  @@map("connect_status")
+}
+
+// ---------------------------------------------------------------------------
+// Identity and authentication
+//
+// AppUser carries no role. Roles come from OrgMember and LeaseTenant, so one
+// email can be a landlord in one org and a tenant elsewhere without a
+// migration. The UI restricts this today; the schema does not.
+// ---------------------------------------------------------------------------
+
+model AppUser {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email       String    @unique @db.Citext
+  displayName String?   @map("display_name")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastLoginAt DateTime? @map("last_login_at") @db.Timestamptz(6)
+
+  orgMemberships   OrgMember[]
+  leaseTenancies   LeaseTenant[]
+  stripeCustomer   StripeCustomer?
+  paymentMethods   PaymentMethod[]
+  paymentsMade     Payment[]          @relation("PaymentPayer")
+  paymentsRecorded Payment[]          @relation("PaymentRecorder")
+  chargesCreated   Charge[]
+  ledgerEntries    LedgerEntry[]
+  splitsProposed   SplitPlan[]        @relation("SplitProposer")
+  splitsApproved   SplitPlan[]        @relation("SplitApprover")
+  invitesSent      Invitation[]       @relation("InvitationSender")
+  invitesAccepted  Invitation[]       @relation("InvitationAcceptor")
+  notifications    NotificationLog[]
+
+  @@map("app_user")
+}
+
+/// One-time login codes. Only the hash is stored, never the code.
+/// A partial unique index (SQL layer) allows one live code per email, so
+/// "resend" must consume or delete the prior row rather than plain-insert.
+model AuthCode {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String    @db.Citext
+  codeHash     String    @map("code_hash")
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt   DateTime? @map("consumed_at") @db.Timestamptz(6)
+  attemptCount Int       @default(0) @map("attempt_count")
+  requestIp    String?   @map("request_ip") @db.Inet
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("auth_code")
+}
+
+/// Tenants never self-register. An accepted invitation is the only way a tenant
+/// account comes into being, which is what enforces role separation.
+model Invitation {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email          String    @db.Citext
+  tokenHash      String    @unique @map("token_hash")
+  invitedBy      String    @map("invited_by") @db.Uuid
+  orgId          String?   @map("org_id") @db.Uuid
+  leaseId        String?   @map("lease_id") @db.Uuid
+  orgRole        OrgRole?  @map("org_role")
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  acceptedAt     DateTime? @map("accepted_at") @db.Timestamptz(6)
+  acceptedUserId String?   @map("accepted_user_id") @db.Uuid
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  inviter      AppUser  @relation("InvitationSender", fields: [invitedBy], references: [id])
+  acceptedUser AppUser? @relation("InvitationAcceptor", fields: [acceptedUserId], references: [id])
+  org          Org?     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  lease        Lease?   @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@map("invitation")
+}
+
+// ---------------------------------------------------------------------------
+// Landlord organizations, properties, units
+// ---------------------------------------------------------------------------
+
+/// The landlord is an org rather than a user so staff can be added later
+/// without restructuring ownership. Holds the Stripe connected account.
+model Org {
+  id                       String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                     String
+  stripeConnectedAccountId String?       @unique @map("stripe_connected_account_id")
+  connectStatus            ConnectStatus @default(not_started) @map("connect_status")
+  connectPayoutsEnabled    Boolean       @default(false) @map("connect_payouts_enabled")
+  createdAt                DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  members     OrgMember[]
+  properties  Property[]
+  invitations Invitation[]
+
+  @@map("org")
+}
+
+model OrgMember {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      OrgRole
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  org  Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@index([userId])
+  @@map("org_member")
+}
+
+model Property {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String  @map("org_id") @db.Uuid
+  name       String
+  line1      String
+  line2      String?
+  city       String
+  region     String
+  postalCode String  @map("postal_code")
+  country    String  @default("US")
+
+  /// Charge generation is calendar-based, so each property needs its own zone.
+  /// "Late after the 5th" in Pittsburgh is a different instant than in Denver.
+  timezone String @default("America/New_York")
+
+  /// Resolves against content/jurisdictions/*.json. A reference rather than a
+  /// copy, so a statutory change updates one file instead of every row.
+  jurisdictionId String @default("us-pa-pittsburgh") @map("jurisdiction_id")
+
+  /// PA sets no statutory cap on late fees, so these are landlord-chosen and
+  /// only advised against by the jurisdiction content.
+  lateFeeKind          LateFeeKind @default(percent_of_rent) @map("late_fee_kind")
+  lateFeeValue         BigInt      @default(5) @map("late_fee_value")
+  lateFeeGraceDays     Int         @default(5) @map("late_fee_grace_days")
+  lateFeeCapCents      BigInt?     @map("late_fee_cap_cents")
+  lateFeeAppliesToWater Boolean    @default(false) @map("late_fee_applies_to_water")
+
+  status    PropertyStatus @default(active)
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  org   Org    @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  units Unit[]
+
+  @@index([orgId])
+  @@map("property")
+}
+
+model Unit {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  label      String
+  bedrooms   Int?
+  /// Available as a basis for square-footage water splits.
+  squareFeet Int?     @map("square_feet")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  leases   Lease[]
+
+  @@unique([propertyId, label])
+  @@index([propertyId])
+  @@map("unit")
+}
+
+// ---------------------------------------------------------------------------
+// Leases
+// ---------------------------------------------------------------------------
+
+model Lease {
+  id                   String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  unitId               String      @map("unit_id") @db.Uuid
+  status               LeaseStatus @default(draft)
+  startsOn             DateTime    @map("starts_on") @db.Date
+  /// Null means month-to-month.
+  endsOn               DateTime?   @map("ends_on") @db.Date
+  rentDueDay           Int         @default(1) @map("rent_due_day")
+  securityDepositCents BigInt      @default(0) @map("security_deposit_cents")
+  notes                String?
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  unit            Unit               @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  rentPeriods     LeaseRentPeriod[]
+  tenants         LeaseTenant[]
+  splitPlans      SplitPlan[]
+  charges         Charge[]
+  payments        Payment[]
+  ledgerEntries   LedgerEntry[]
+  securityDeposit SecurityDeposit?
+  invitations     Invitation[]
+
+  @@index([unitId])
+  @@map("lease")
+}
+
+/// Rent lives here rather than on Lease so a mid-lease increase is a new row
+/// with a later effectiveFrom, and historical charges stay explainable.
+model LeaseRentPeriod {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leaseId       String   @map("lease_id") @db.Uuid
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  rentCents     BigInt   @map("rent_cents")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lease Lease @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  @@unique([leaseId, effectiveFrom])
+  @@map("lease_rent_period")
+}
+
+model LeaseTenant {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leaseId    String    @map("lease_id") @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  movedInOn  DateTime? @map("moved_in_on") @db.Date
+  movedOutOn DateTime? @map("moved_out_on") @db.Date
+  isPrimary  Boolean   @default(false) @map("is_primary")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lease       Lease              @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  user        AppUser            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  shares      SplitShare[]
+  allocations ChargeAllocation[]
+  autopay     AutopayEnrollment?
+  ledgerEntries LedgerEntry[]
+
+  @@unique([leaseId, userId])
+  @@index([userId])
+  @@index([leaseId])
+  @@map("lease_tenant")
+}
+
+// ---------------------------------------------------------------------------
+// Split plans
+//
+// A plan does NOT create per-tenant debt. The lease owes the full charge
+// (joint and several); shares are expected contributions used for tracking and
+// autopay. Tenants propose, the landlord approves.
+// ---------------------------------------------------------------------------
+
+model SplitPlan {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leaseId     String      @map("lease_id") @db.Uuid
+  chargeType  ChargeType  @map("charge_type")
+  mode        SplitMode
+  status      SplitStatus @default(proposed)
+
+  /// Approved plans take effect on the next billing period, never
+  /// retroactively: re-splitting a period tenants have already partly paid
+  /// into is unresolvable.
+  effectiveFrom DateTime @map("effective_from") @db.Date
+
+  proposedBy String?   @map("proposed_by") @db.Uuid
+  approvedBy String?   @map("approved_by") @db.Uuid
+  approvedAt DateTime? @map("approved_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lease       Lease              @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  proposer    AppUser?           @relation("SplitProposer", fields: [proposedBy], references: [id])
+  approver    AppUser?           @relation("SplitApprover", fields: [approvedBy], references: [id])
+  shares      SplitShare[]
+  allocations ChargeAllocation[]
+
+  @@index([leaseId])
+  @@map("split_plan")
+}
+
+model SplitShare {
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  splitPlanId   String @map("split_plan_id") @db.Uuid
+  leaseTenantId String @map("lease_tenant_id") @db.Uuid
+
+  /// Exactly one of these is set, matching the parent plan's mode.
+  /// Basis points: 10000 = 100%. Integer math only, no float drift.
+  percentBps Int?    @map("percent_bps")
+  fixedCents BigInt? @map("fixed_cents")
+
+  /// Integer division leaves remainder cents. One share per plan absorbs them
+  /// so allocations always sum to the charge exactly.
+  absorbsRemainder Boolean @default(false) @map("absorbs_remainder")
+
+  plan   SplitPlan   @relation(fields: [splitPlanId], references: [id], onDelete: Cascade)
+  tenant LeaseTenant @relation(fields: [leaseTenantId], references: [id], onDelete: Cascade)
+
+  @@unique([splitPlanId, leaseTenantId])
+  @@map("split_share")
+}
+
+// ---------------------------------------------------------------------------
+// Charges
+// ---------------------------------------------------------------------------
+
+model Charge {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leaseId     String     @map("lease_id") @db.Uuid
+  chargeType  ChargeType @map("charge_type")
+  amountCents BigInt     @map("amount_cents")
+  description String?
+
+  /// Service window, distinct from dueOn because water bills arrive after the
+  /// period they cover and proration keys off the window, not the receipt date.
+  periodStart DateTime? @map("period_start") @db.Date
+  periodEnd   DateTime? @map("period_end") @db.Date
+  dueOn       DateTime  @map("due_on") @db.Date
+
+  /// Supporting document, e.g. the scanned PWSA bill. Tenants believe a bill;
+  /// they do not believe a typed number.
+  documentUrl String? @map("document_url")
+
+  /// Makes charge generation safely re-runnable. A double-fired cron hits a
+  /// constraint violation instead of levying a second fee. Examples:
+  ///   rent:<lease>:2026-09  |  late_fee:<lease>:2026-09  |  water:<lease>:2026-08
+  idempotencyKey String @unique @map("idempotency_key")
+
+  /// Null means generated by the system rather than entered by a person.
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lease         Lease              @relation(fields: [leaseId], references: [id], onDelete: Restrict)
+  creator       AppUser?           @relation(fields: [createdBy], references: [id])
+  allocations   ChargeAllocation[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([leaseId, dueOn])
+  @@index([dueOn, chargeType])
+  @@map("charge")
+}
+
+/// Per-tenant expected contribution toward a charge. Tracking only — these are
+/// not separately collectable debts.
+model ChargeAllocation {
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chargeId      String @map("charge_id") @db.Uuid
+  leaseTenantId String @map("lease_tenant_id") @db.Uuid
+  amountCents   BigInt @map("amount_cents")
+  /// Provenance, so the UI can answer "why is my share $712?"
+  splitPlanId   String? @map("split_plan_id") @db.Uuid
+
+  charge Charge      @relation(fields: [chargeId], references: [id], onDelete: Cascade)
+  tenant LeaseTenant @relation(fields: [leaseTenantId], references: [id], onDelete: Restrict)
+  plan   SplitPlan?  @relation(fields: [splitPlanId], references: [id])
+
+  @@unique([chargeId, leaseTenantId])
+  @@index([leaseTenantId])
+  @@map("charge_allocation")
+}
+
+// ---------------------------------------------------------------------------
+// Payments and Stripe
+// ---------------------------------------------------------------------------
+
+model StripeCustomer {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String   @unique @map("user_id") @db.Uuid
+  stripeCustomerId String   @unique @map("stripe_customer_id")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("stripe_customer")
+}
+
+model PaymentMethod {
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String            @map("user_id") @db.Uuid
+  stripePaymentMethodId String            @unique @map("stripe_payment_method_id")
+  kind                  PaymentMethodKind
+  last4                 String?
+  bankName              String?           @map("bank_name")
+
+  /// NACHA requires retaining proof of the debit authorization.
+  mandateReference  String?   @map("mandate_reference")
+  mandateAcceptedAt DateTime? @map("mandate_accepted_at") @db.Timestamptz(6)
+  mandateAcceptedIp String?   @map("mandate_accepted_ip") @db.Inet
+
+  isDefault  Boolean   @default(false) @map("is_default")
+  detachedAt DateTime? @map("detached_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user     AppUser             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments Payment[]
+  autopay  AutopayEnrollment[]
+
+  @@index([userId])
+  @@map("payment_method")
+}
+
+model Payment {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leaseId String @map("lease_id") @db.Uuid
+  /// Null for landlord-recorded cash or check.
+  payerUserId String? @map("payer_user_id") @db.Uuid
+
+  amountCents BigInt         @map("amount_cents")
+  channel     PaymentChannel
+  status      PaymentStatus  @default(pending)
+
+  paymentMethodId       String? @map("payment_method_id") @db.Uuid
+  stripePaymentIntentId String? @unique @map("stripe_payment_intent_id")
+
+  failureCode    String? @map("failure_code")
+  failureMessage String? @map("failure_message")
+
+  initiatedAt DateTime  @default(now()) @map("initiated_at") @db.Timestamptz(6)
+  settledAt   DateTime? @map("settled_at") @db.Timestamptz(6)
+  reversedAt  DateTime? @map("reversed_at") @db.Timestamptz(6)
+
+  /// Guards against client double-submit and job retries.
+  idempotencyKey String @unique @map("idempotency_key")
+
+  recordedBy String?  @map("recorded_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lease         Lease          @relation(fields: [leaseId], references: [id], onDelete: Restrict)
+  payer         AppUser?       @relation("PaymentPayer", fields: [payerUserId], references: [id])
+  recorder      AppUser?       @relation("PaymentRecorder", fields: [recordedBy], references: [id])
+  paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  ledgerEntries LedgerEntry[]
+
+  @@index([leaseId, initiatedAt(sort: Desc)])
+  @@index([payerUserId])
+  @@index([status])
+  @@map("payment")
+}
+
+/// Webhook deduplication. Stripe redelivers, and ACH resolves days later — this
+/// table, not the original API response, is the source of truth for payment
+/// state.
+model StripeEvent {
+  id                 String    @id
+  type               String
+  connectedAccountId String?   @map("connected_account_id")
+  payload            Json      @db.JsonB
+  receivedAt         DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt        DateTime? @map("processed_at") @db.Timestamptz(6)
+  processError       String?   @map("process_error")
+
+  @@map("stripe_event")
+}
+
+model AutopayEnrollment {
+  id              String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leaseTenantId   String @unique @map("lease_tenant_id") @db.Uuid
+  paymentMethodId String @map("payment_method_id") @db.Uuid
+  dayOfMonth      Int    @map("day_of_month")
+
+  /// False charges whatever the tenant's allocation comes to that month; true
+  /// always charges fixedCents.
+  useFixedAmount Boolean  @default(false) @map("use_fixed_amount")
+  fixedCents     BigInt?  @map("fixed_cents")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant        LeaseTenant   @relation(fields: [leaseTenantId], references: [id], onDelete: Cascade)
+  paymentMethod PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+
+  @@map("autopay_enrollment")
+}
+
+// ---------------------------------------------------------------------------
+// Ledger (append-only)
+//
+// Lease balance is SUM(amountCents). Positive increases what is owed, negative
+// reduces it. A database trigger rejects UPDATE and DELETE outright: a mistake
+// or an ACH return posts a `reversal` row pointing at the entry it undoes.
+// ---------------------------------------------------------------------------
+
+model LedgerEntry {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leaseId     String    @map("lease_id") @db.Uuid
+  entryType   EntryType @map("entry_type")
+  amountCents BigInt    @map("amount_cents")
+
+  chargeId  String? @map("charge_id") @db.Uuid
+  paymentId String? @map("payment_id") @db.Uuid
+  /// Unique so a given entry can only ever be reversed once.
+  reversesEntryId String? @unique @map("reverses_entry_id") @db.Uuid
+
+  /// Which tenant this movement is attributable to, when known. Lets the app
+  /// answer "who is short?" without turning the balance into per-tenant debt.
+  leaseTenantId String? @map("lease_tenant_id") @db.Uuid
+
+  memo        String?
+  effectiveOn DateTime @default(dbgenerated("current_date")) @map("effective_on") @db.Date
+  createdBy   String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lease       Lease        @relation(fields: [leaseId], references: [id], onDelete: Restrict)
+  charge      Charge?      @relation(fields: [chargeId], references: [id])
+  payment     Payment?     @relation(fields: [paymentId], references: [id])
+  tenant      LeaseTenant? @relation(fields: [leaseTenantId], references: [id])
+  creator     AppUser?     @relation(fields: [createdBy], references: [id])
+  reversedEntry LedgerEntry?  @relation("EntryReversal", fields: [reversesEntryId], references: [id])
+  reversal      LedgerEntry?  @relation("EntryReversal")
+
+  @@index([leaseId, effectiveOn, createdAt])
+  @@index([chargeId])
+  @@index([paymentId])
+  @@map("ledger_entry")
+}
+
+/// Defined in the SQL layer WITH (security_invoker = true) — without that a
+/// view runs as its owner and silently bypasses RLS on ledger_entry.
+view LeaseBalance {
+  leaseId      String @unique @map("lease_id") @db.Uuid
+  balanceCents BigInt @map("balance_cents")
+
+  @@map("lease_balance")
+}
+
+// ---------------------------------------------------------------------------
+// Security deposits
+//
+// Deliberately outside the rent ledger. PA requires deposits over $100 in
+// escrow, interest-bearing after two years, and returned within 30 days of
+// move-out with an itemized list. Commingling them with rent loses disputes.
+// ---------------------------------------------------------------------------
+
+model SecurityDeposit {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leaseId     String    @unique @map("lease_id") @db.Uuid
+  amountCents BigInt    @map("amount_cents")
+  receivedOn  DateTime? @map("received_on") @db.Date
+
+  escrowInstitutionName    String?   @map("escrow_institution_name")
+  escrowInstitutionAddress String?   @map("escrow_institution_address")
+  tenantNotifiedOn         DateTime? @map("tenant_notified_on") @db.Date
+  interestBearing          Boolean   @default(false) @map("interest_bearing")
+  interestBearingSince     DateTime? @map("interest_bearing_since") @db.Date
+
+  /// Set at move-out. Drives the reminder clock; in PA this is move-out + 30
+  /// days, and missing it forfeits the right to withhold anything.
+  returnDueOn   DateTime? @map("return_due_on") @db.Date
+  returnedOn    DateTime? @map("returned_on") @db.Date
+  returnedCents BigInt?   @map("returned_cents")
+  itemization   Json?     @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lease Lease @relation(fields: [leaseId], references: [id], onDelete: Restrict)
+
+  @@index([returnDueOn])
+  @@map("security_deposit")
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+model NotificationLog {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  /// rent_due, payment_failed, late_fee_posted, deposit_deadline
+  kind   String
+  /// Same discipline as charges: a retried job must not re-send.
+  dedupeKey String    @unique @map("dedupe_key")
+  channel   String    @default("email")
+  sentAt    DateTime? @map("sent_at") @db.Timestamptz(6)
+  error     String?
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_log")
+}

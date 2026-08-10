@@ -1,0 +1,27 @@
+{
+  "name": "ee-rent-tracker",
+  "version": "1.0.0",
+  "description": "Rent, utility, and payment tracking for small landlords.",
+  "scripts": {
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "set -a && . ./.env && set +a && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f db/test/0001_seed.sql",
+    "db:test": "set -a && . ./.env && set +a && psql \"$DATABASE_URL\" -f db/test/0002_constraints.sql && psql \"$APP_DATABASE_URL\" -f db/test/0003_rls.sql",
+    "db:verify": "set -a && . ./.env && set +a && psql \"$DATABASE_URL\" -f db/test/verify_objects.sql"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SPeterson97/EE-Rent-Tracker.git"
+  },
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/SPeterson97/EE-Rent-Tracker/issues"
+  },
+  "homepage": "https://github.com/SPeterson97/EE-Rent-Tracker#readme",
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "prisma": "^7.9.1",
+    "typescript": "^7.0.2"
+  },
+  "private": true
+}
