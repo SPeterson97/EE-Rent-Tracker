@@ -43,6 +43,10 @@ Prisma will not do any of these for you.
 - [ ] `grant` to `ee_app` (covered by `alter default privileges`, but confirm)
 - [ ] An idempotency key with a `unique` constraint if any background job writes to it
 - [ ] Money columns are `BigInt` cents; billing boundaries are `@db.Date`, not timestamps
+- [ ] `updatedAt` on the model **and** re-run `db/sql/0002_updated_at.sql`, which
+      is catalog-driven and attaches the trigger to any table that has the column
+      (omit both only for genuinely immutable tables)
+- [ ] Bump the expected counts in `db/test/verify_objects.sql`
 
 Any view added later **must** be created `WITH (security_invoker = true)`.
 Without it the view runs as its owner and silently bypasses RLS on every table
@@ -255,3 +259,26 @@ npm run db:test         # 22 constraint rejections + RLS isolation
 
 Verified end to end on a fresh database: roles → migrate → all six object
 counts `ok`, no views missing `security_invoker`.
+
+## Querying from application code
+
+Never construct a `PrismaClient` directly. `src/db.ts` exposes two, and the
+distinction is the same ownership split described above:
+
+| Export | Connects as | RLS | Use for |
+|---|---|---|---|
+| `asUser(userId, fn)` | `ee_app` | **enforced** | every request-scoped query |
+| `ownerDb()` | `ee_owner` | **bypassed** | migrations, webhook ingestion, cron jobs |
+
+```ts
+const leases = await asUser(userId, (tx) => tx.lease.findMany());
+```
+
+`asUser` sets `app.current_user_id` with `set_config(..., true)` — the third
+argument scopes it to the transaction. A session-level `SET` would leak the
+identity to whichever request next reuses that pooled connection, which is
+intermittent, undetectable in a single-connection test, and a cross-tenant data
+leak. `npm run db:check` exercises this with 12 interleaved concurrent requests.
+
+Money is `BigInt` cents and `JSON.stringify` throws on BigInt. Convert at the
+API boundary with `centsToNumber()` / `formatCents()` from `src/db.ts`.

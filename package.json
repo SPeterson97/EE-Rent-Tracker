@@ -7,22 +7,30 @@
     "db:migrate": "prisma migrate deploy",
     "db:verify": "set -a && . ./.env && set +a && psql \"$DATABASE_URL\" -f db/test/verify_objects.sql",
     "db:seed": "set -a && . ./.env && set +a && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f db/test/0001_seed.sql",
-    "db:test": "set -a && . ./.env && set +a && psql \"$DATABASE_URL\" -f db/test/0002_constraints.sql && psql \"$APP_DATABASE_URL\" -f db/test/0003_rls.sql"
+    "db:test": "set -a && . ./.env && set +a && psql \"$DATABASE_URL\" -f db/test/0002_constraints.sql && psql \"$APP_DATABASE_URL\" -f db/test/0003_rls.sql",
+    "db:check": "node --env-file=.env node_modules/.bin/tsx src/db.check.ts"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/SPeterson97/EE-Rent-Tracker.git"
   },
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/SPeterson97/EE-Rent-Tracker/issues"
   },
   "homepage": "https://github.com/SPeterson97/EE-Rent-Tracker#readme",
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "@types/pg": "^8.21.0",
     "prisma": "^7.9.1",
+    "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   },
-  "private": true
+  "private": true,
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
+    "pg": "^8.23.0"
+  }
 }

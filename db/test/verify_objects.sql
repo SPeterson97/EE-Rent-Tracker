@@ -22,7 +22,7 @@ from (
            where n.nspname = 'public' and i.indpred is not null), 11
   union all
   select 'triggers',
-         (select count(*) from pg_trigger where not tgisinternal), 2
+         (select count(*) from pg_trigger where not tgisinternal), 22
   union all
   select 'tables with RLS enabled',
          (select count(*) from pg_class c
@@ -35,7 +35,7 @@ from (
   select 'app schema functions',
          (select count(*) from pg_proc p
             join pg_namespace n on n.oid = p.pronamespace
-           where n.nspname = 'app'), 6
+           where n.nspname = 'app'), 7
 ) t
 order by status desc, label;
 

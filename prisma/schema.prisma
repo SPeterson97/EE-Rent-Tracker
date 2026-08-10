@@ -149,15 +149,19 @@ model AppUser {
   leaseTenancies   LeaseTenant[]
   stripeCustomer   StripeCustomer?
   paymentMethods   PaymentMethod[]
-  paymentsMade     Payment[]          @relation("PaymentPayer")
-  paymentsRecorded Payment[]          @relation("PaymentRecorder")
+  paymentsMade     Payment[]         @relation("PaymentPayer")
+  paymentsRecorded Payment[]         @relation("PaymentRecorder")
   chargesCreated   Charge[]
   ledgerEntries    LedgerEntry[]
-  splitsProposed   SplitPlan[]        @relation("SplitProposer")
-  splitsApproved   SplitPlan[]        @relation("SplitApprover")
-  invitesSent      Invitation[]       @relation("InvitationSender")
-  invitesAccepted  Invitation[]       @relation("InvitationAcceptor")
+  splitsProposed   SplitPlan[]       @relation("SplitProposer")
+  splitsApproved   SplitPlan[]       @relation("SplitApprover")
+  invitesSent      Invitation[]      @relation("InvitationSender")
+  invitesAccepted  Invitation[]      @relation("InvitationAcceptor")
   notifications    NotificationLog[]
+
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("app_user")
 }
@@ -198,6 +202,9 @@ model Invitation {
   acceptedUser AppUser? @relation("InvitationAcceptor", fields: [acceptedUserId], references: [id])
   org          Org?     @relation(fields: [orgId], references: [id], onDelete: Cascade)
   lease        Lease?   @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([email])
   @@map("invitation")
@@ -221,6 +228,10 @@ model Org {
   properties  Property[]
   invitations Invitation[]
 
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
   @@map("org")
 }
 
@@ -231,8 +242,11 @@ model OrgMember {
   role      OrgRole
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  org  Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user      AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([orgId, userId])
   @@index([userId])
@@ -260,17 +274,20 @@ model Property {
 
   /// PA sets no statutory cap on late fees, so these are landlord-chosen and
   /// only advised against by the jurisdiction content.
-  lateFeeKind          LateFeeKind @default(percent_of_rent) @map("late_fee_kind")
-  lateFeeValue         BigInt      @default(5) @map("late_fee_value")
-  lateFeeGraceDays     Int         @default(5) @map("late_fee_grace_days")
-  lateFeeCapCents      BigInt?     @map("late_fee_cap_cents")
-  lateFeeAppliesToWater Boolean    @default(false) @map("late_fee_applies_to_water")
+  lateFeeKind           LateFeeKind @default(percent_of_rent) @map("late_fee_kind")
+  lateFeeValue          BigInt      @default(5) @map("late_fee_value")
+  lateFeeGraceDays      Int         @default(5) @map("late_fee_grace_days")
+  lateFeeCapCents       BigInt?     @map("late_fee_cap_cents")
+  lateFeeAppliesToWater Boolean     @default(false) @map("late_fee_applies_to_water")
 
   status    PropertyStatus @default(active)
   createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  org   Org    @relation(fields: [orgId], references: [id], onDelete: Restrict)
-  units Unit[]
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  units     Unit[]
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([orgId])
   @@map("property")
@@ -285,8 +302,11 @@ model Unit {
   squareFeet Int?     @map("square_feet")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  property Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
-  leases   Lease[]
+  property  Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  leases    Lease[]
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([propertyId, label])
   @@index([propertyId])
@@ -309,7 +329,7 @@ model Lease {
   notes                String?
   createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  unit            Unit               @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  unit            Unit              @relation(fields: [unitId], references: [id], onDelete: Restrict)
   rentPeriods     LeaseRentPeriod[]
   tenants         LeaseTenant[]
   splitPlans      SplitPlan[]
@@ -318,6 +338,9 @@ model Lease {
   ledgerEntries   LedgerEntry[]
   securityDeposit SecurityDeposit?
   invitations     Invitation[]
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([unitId])
   @@map("lease")
@@ -332,7 +355,10 @@ model LeaseRentPeriod {
   rentCents     BigInt   @map("rent_cents")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  lease Lease @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  lease     Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([leaseId, effectiveFrom])
   @@map("lease_rent_period")
@@ -347,12 +373,15 @@ model LeaseTenant {
   isPrimary  Boolean   @default(false) @map("is_primary")
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  lease       Lease              @relation(fields: [leaseId], references: [id], onDelete: Cascade)
-  user        AppUser            @relation(fields: [userId], references: [id], onDelete: Restrict)
-  shares      SplitShare[]
-  allocations ChargeAllocation[]
-  autopay     AutopayEnrollment?
+  lease         Lease              @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  user          AppUser            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  shares        SplitShare[]
+  allocations   ChargeAllocation[]
+  autopay       AutopayEnrollment?
   ledgerEntries LedgerEntry[]
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt     DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([leaseId, userId])
   @@index([userId])
@@ -369,11 +398,11 @@ model LeaseTenant {
 // ---------------------------------------------------------------------------
 
 model SplitPlan {
-  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  leaseId     String      @map("lease_id") @db.Uuid
-  chargeType  ChargeType  @map("charge_type")
-  mode        SplitMode
-  status      SplitStatus @default(proposed)
+  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leaseId    String      @map("lease_id") @db.Uuid
+  chargeType ChargeType  @map("charge_type")
+  mode       SplitMode
+  status     SplitStatus @default(proposed)
 
   /// Approved plans take effect on the next billing period, never
   /// retroactively: re-splitting a period tenants have already partly paid
@@ -390,6 +419,9 @@ model SplitPlan {
   approver    AppUser?           @relation("SplitApprover", fields: [approvedBy], references: [id])
   shares      SplitShare[]
   allocations ChargeAllocation[]
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt   DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([leaseId])
   @@map("split_plan")
@@ -409,8 +441,11 @@ model SplitShare {
   /// so allocations always sum to the charge exactly.
   absorbsRemainder Boolean @default(false) @map("absorbs_remainder")
 
-  plan   SplitPlan   @relation(fields: [splitPlanId], references: [id], onDelete: Cascade)
-  tenant LeaseTenant @relation(fields: [leaseTenantId], references: [id], onDelete: Cascade)
+  plan      SplitPlan   @relation(fields: [splitPlanId], references: [id], onDelete: Cascade)
+  tenant    LeaseTenant @relation(fields: [leaseTenantId], references: [id], onDelete: Cascade)
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([splitPlanId, leaseTenantId])
   @@map("split_share")
@@ -450,6 +485,9 @@ model Charge {
   creator       AppUser?           @relation(fields: [createdBy], references: [id])
   allocations   ChargeAllocation[]
   ledgerEntries LedgerEntry[]
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt     DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([leaseId, dueOn])
   @@index([dueOn, chargeType])
@@ -459,16 +497,19 @@ model Charge {
 /// Per-tenant expected contribution toward a charge. Tracking only — these are
 /// not separately collectable debts.
 model ChargeAllocation {
-  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  chargeId      String @map("charge_id") @db.Uuid
-  leaseTenantId String @map("lease_tenant_id") @db.Uuid
-  amountCents   BigInt @map("amount_cents")
+  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chargeId      String  @map("charge_id") @db.Uuid
+  leaseTenantId String  @map("lease_tenant_id") @db.Uuid
+  amountCents   BigInt  @map("amount_cents")
   /// Provenance, so the UI can answer "why is my share $712?"
   splitPlanId   String? @map("split_plan_id") @db.Uuid
 
-  charge Charge      @relation(fields: [chargeId], references: [id], onDelete: Cascade)
-  tenant LeaseTenant @relation(fields: [leaseTenantId], references: [id], onDelete: Restrict)
-  plan   SplitPlan?  @relation(fields: [splitPlanId], references: [id])
+  charge    Charge      @relation(fields: [chargeId], references: [id], onDelete: Cascade)
+  tenant    LeaseTenant @relation(fields: [leaseTenantId], references: [id], onDelete: Restrict)
+  plan      SplitPlan?  @relation(fields: [splitPlanId], references: [id])
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([chargeId, leaseTenantId])
   @@index([leaseTenantId])
@@ -486,6 +527,10 @@ model StripeCustomer {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   user AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("stripe_customer")
 }
@@ -507,17 +552,20 @@ model PaymentMethod {
   detachedAt DateTime? @map("detached_at") @db.Timestamptz(6)
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  user     AppUser             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  payments Payment[]
-  autopay  AutopayEnrollment[]
+  user      AppUser             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments  Payment[]
+  autopay   AutopayEnrollment[]
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([userId])
   @@map("payment_method")
 }
 
 model Payment {
-  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  leaseId String @map("lease_id") @db.Uuid
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leaseId     String  @map("lease_id") @db.Uuid
   /// Null for landlord-recorded cash or check.
   payerUserId String? @map("payer_user_id") @db.Uuid
 
@@ -546,6 +594,9 @@ model Payment {
   recorder      AppUser?       @relation("PaymentRecorder", fields: [recordedBy], references: [id])
   paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
   ledgerEntries LedgerEntry[]
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([leaseId, initiatedAt(sort: Desc)])
   @@index([payerUserId])
@@ -564,6 +615,10 @@ model StripeEvent {
   receivedAt         DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
   processedAt        DateTime? @map("processed_at") @db.Timestamptz(6)
   processError       String?   @map("process_error")
+
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("stripe_event")
 }
@@ -584,6 +639,10 @@ model AutopayEnrollment {
   tenant        LeaseTenant   @relation(fields: [leaseTenantId], references: [id], onDelete: Cascade)
   paymentMethod PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
 
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
   @@map("autopay_enrollment")
 }
 
@@ -601,8 +660,8 @@ model LedgerEntry {
   entryType   EntryType @map("entry_type")
   amountCents BigInt    @map("amount_cents")
 
-  chargeId  String? @map("charge_id") @db.Uuid
-  paymentId String? @map("payment_id") @db.Uuid
+  chargeId        String? @map("charge_id") @db.Uuid
+  paymentId       String? @map("payment_id") @db.Uuid
   /// Unique so a given entry can only ever be reversed once.
   reversesEntryId String? @unique @map("reverses_entry_id") @db.Uuid
 
@@ -615,13 +674,13 @@ model LedgerEntry {
   createdBy   String?  @map("created_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  lease       Lease        @relation(fields: [leaseId], references: [id], onDelete: Restrict)
-  charge      Charge?      @relation(fields: [chargeId], references: [id])
-  payment     Payment?     @relation(fields: [paymentId], references: [id])
-  tenant      LeaseTenant? @relation(fields: [leaseTenantId], references: [id])
-  creator     AppUser?     @relation(fields: [createdBy], references: [id])
-  reversedEntry LedgerEntry?  @relation("EntryReversal", fields: [reversesEntryId], references: [id])
-  reversal      LedgerEntry?  @relation("EntryReversal")
+  lease         Lease        @relation(fields: [leaseId], references: [id], onDelete: Restrict)
+  charge        Charge?      @relation(fields: [chargeId], references: [id])
+  payment       Payment?     @relation(fields: [paymentId], references: [id])
+  tenant        LeaseTenant? @relation(fields: [leaseTenantId], references: [id])
+  creator       AppUser?     @relation(fields: [createdBy], references: [id])
+  reversedEntry LedgerEntry? @relation("EntryReversal", fields: [reversesEntryId], references: [id])
+  reversal      LedgerEntry? @relation("EntryReversal")
 
   @@index([leaseId, effectiveOn, createdAt])
   @@index([chargeId])
@@ -667,7 +726,10 @@ model SecurityDeposit {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  lease Lease @relation(fields: [leaseId], references: [id], onDelete: Restrict)
+  lease     Lease    @relation(fields: [leaseId], references: [id], onDelete: Restrict)
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([returnDueOn])
   @@map("security_deposit")
@@ -678,10 +740,10 @@ model SecurityDeposit {
 // ---------------------------------------------------------------------------
 
 model NotificationLog {
-  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId String @map("user_id") @db.Uuid
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
   /// rent_due, payment_failed, late_fee_posted, deposit_deadline
-  kind   String
+  kind      String
   /// Same discipline as charges: a retried job must not re-send.
   dedupeKey String    @unique @map("dedupe_key")
   channel   String    @default("email")
@@ -690,6 +752,10 @@ model NotificationLog {
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   user AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Maintained by the app.touch_updated_at() trigger, which is
+  /// authoritative so raw SQL updates are covered too.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("notification_log")
 }
