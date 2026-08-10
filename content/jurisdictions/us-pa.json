@@ -1,0 +1,129 @@
+{
+  "id": "us-pa",
+  "level": "state",
+  "name": "Pennsylvania",
+  "parent": null,
+  "effective_as_of": "2026-08-10",
+  "disclaimer": "Reference material, not legal advice. Confirm with a Pennsylvania landlord-tenant attorney before relying on these defaults.",
+  "rules": [
+    {
+      "id": "pa.late_fee.cap",
+      "applies_to": "property.late_fee_config",
+      "enforcement": "advisory",
+      "verification_status": "confident",
+      "constraint": {
+        "statutory_cap": null,
+        "cap_basis": null,
+        "mandatory_grace_period_days": null
+      },
+      "recommended_default": {
+        "fee_type": "percent_of_rent",
+        "value": 5,
+        "grace_period_days": 5
+      },
+      "ui": {
+        "inline_hint": "PA sets no statutory cap on late fees — but a fee a court considers a penalty rather than a real estimate of your costs can be thrown out.",
+        "reference": "Pennsylvania does not cap residential late fees by statute and does not mandate a grace period; the terms come from your lease. The practical limit is common-law contract doctrine: a liquidated-damages clause must be a reasonable forecast of actual harm, not a punishment. A 5% fee after a 5-day grace period is conventional and defensible. Note that this is unusually permissive — Maryland caps late fees at 5% and North Carolina at the greater of $15 or 5%, so do not carry a PA configuration into another state."
+      },
+      "citation": "Pennsylvania common law (liquidated damages / penalty doctrine); no controlling statutory cap."
+    },
+    {
+      "id": "pa.deposit.max_amount",
+      "applies_to": "lease.security_deposit_cents",
+      "enforcement": "hard_limit",
+      "verification_status": "confident",
+      "constraint": {
+        "max_months_rent_first_year": 2,
+        "max_months_rent_after_first_year": 1,
+        "no_increase_after_years": 5
+      },
+      "ui": {
+        "inline_hint": "PA caps deposits at 2 months' rent in year one, 1 month after that.",
+        "reference": "During the first year of a lease, the deposit may not exceed two months' rent. After the first year it must drop to no more than one month's rent. Once a tenant has been in place five years, the deposit may not be increased even if rent rises. Collecting above these limits is not enforceable and exposes you to a claim for the excess."
+      },
+      "citation": "68 P.S. § 250.511a"
+    },
+    {
+      "id": "pa.deposit.escrow",
+      "applies_to": "property.deposit_handling",
+      "enforcement": "hard_limit",
+      "verification_status": "confident",
+      "constraint": {
+        "escrow_required_above_cents": 10000,
+        "tenant_notice_required": ["bank_name", "bank_address"]
+      },
+      "ui": {
+        "inline_hint": "Deposits over $100 must sit in escrow at a regulated institution, and the tenant must be told where.",
+        "reference": "Any deposit over $100 must be held in an escrow account at a federally or state-regulated financial institution, separate from your operating funds. You are required to give the tenant the name and address of that institution. Commingling deposits with rental income is the single most common way PA landlords lose a deposit dispute."
+      },
+      "citation": "68 P.S. § 250.511a"
+    },
+    {
+      "id": "pa.deposit.interest",
+      "applies_to": "property.deposit_handling",
+      "enforcement": "hard_limit",
+      "verification_status": "confident",
+      "constraint": {
+        "interest_required_after_months": 24,
+        "applies_above_cents": 10000,
+        "interest_owed_to": "tenant",
+        "landlord_admin_retention_percent_per_year": 1
+      },
+      "ui": {
+        "inline_hint": "Past the second year, deposits over $100 must earn interest — and the interest belongs to the tenant.",
+        "reference": "Once a tenancy passes two years, a deposit over $100 must be held in an interest-bearing account. The interest is the tenant's, though you may retain 1% per year as an administrative fee. This obligation is easy to miss because it starts mid-tenancy rather than at signing."
+      },
+      "citation": "68 P.S. § 250.511b"
+    },
+    {
+      "id": "pa.deposit.return_deadline",
+      "applies_to": "lease.move_out",
+      "enforcement": "deadline",
+      "verification_status": "confident",
+      "constraint": {
+        "deadline_days": 30,
+        "clock_starts_at": "move_out_or_lease_termination",
+        "itemized_list_required": true,
+        "penalty_missed_list": "forfeits_right_to_withhold",
+        "penalty_wrongful_withholding": "double_damages"
+      },
+      "ui": {
+        "inline_hint": "30 days from move-out to return the deposit with an itemized list — missing it forfeits your right to withhold anything.",
+        "reference": "Within 30 days of termination or move-out you must return the deposit along with a written itemized list of any damages withheld. Failing to provide that list within the window forfeits your right to keep any portion of the deposit. Withholding without a proper list can expose you to double the amount wrongfully withheld, so this deadline deserves an active reminder rather than a passive status field."
+      },
+      "citation": "68 P.S. § 250.512"
+    },
+    {
+      "id": "pa.utilities.municipal_lien",
+      "applies_to": "property.water_billing",
+      "enforcement": "advisory",
+      "verification_status": "confident",
+      "constraint": {
+        "unpaid_charges_can_lien_property": true,
+        "liable_party": "property_owner"
+      },
+      "ui": {
+        "inline_hint": "Unpaid water and sewer charges can become a lien on the property — the owner stays liable regardless of what the lease says.",
+        "reference": "In Pennsylvania, unpaid municipal water and sewer charges can attach as a lien against the property itself, and the owner remains ultimately responsible no matter how the lease assigns the cost. This is the core argument for keeping utility accounts in the owner's name and rebilling tenants through this application, rather than putting accounts in tenant names and hoping they pay."
+      },
+      "citation": "Municipal Claims and Tax Liens Act, 53 P.S. § 7101 et seq."
+    },
+    {
+      "id": "pa.payment_application.order",
+      "applies_to": "ledger.payment_waterfall",
+      "enforcement": "advisory",
+      "verification_status": "verify_with_counsel",
+      "constraint": {
+        "statutory_rule": null
+      },
+      "recommended_default": {
+        "waterfall": ["oldest_rent", "utilities", "fees"]
+      },
+      "ui": {
+        "inline_hint": "Apply partial payments to rent first and fees last.",
+        "reference": "Pennsylvania has no clear statutory rule dictating how a partial payment is applied across rent, utilities, and fees. Applying payments to fees first is risky everywhere: it can convert a paid-up tenant into a rent-delinquent one on paper and manufacture grounds for eviction, which courts look on poorly. Defaulting to oldest-rent-first and fees-last is both the safer and the fairer rule."
+      },
+      "citation": "No controlling statute identified — confirm treatment with counsel."
+    }
+  ]
+}

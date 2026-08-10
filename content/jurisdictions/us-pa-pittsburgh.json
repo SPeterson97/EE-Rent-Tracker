@@ -1,0 +1,55 @@
+{
+  "id": "us-pa-pittsburgh",
+  "level": "city",
+  "name": "Pittsburgh",
+  "parent": "us-pa",
+  "effective_as_of": "2026-08-10",
+  "disclaimer": "Reference material, not legal advice. City ordinances change more often than state statutes and several Pittsburgh rental ordinances have faced legal challenge — verify current status before relying on these.",
+  "rules": [
+    {
+      "id": "pgh.screening.source_of_income",
+      "applies_to": "applicant.screening",
+      "enforcement": "hard_limit",
+      "verification_status": "verify_with_counsel",
+      "constraint": {
+        "source_of_income_discrimination_prohibited": true,
+        "covers_housing_vouchers": true
+      },
+      "ui": {
+        "inline_hint": "Pittsburgh prohibits turning away applicants based on source of income, including housing vouchers.",
+        "reference": "Pittsburgh's anti-discrimination ordinance extends beyond Pennsylvania state law to cover source of income, which includes housing choice vouchers. Refusing to rent to a voucher holder on that basis alone is prohibited within city limits even though state law is silent. This matters only once you add applicant screening, but it should be surfaced there from day one."
+      },
+      "citation": "Pittsburgh City Code, Title VI (Conduct), anti-discrimination provisions — confirm current text."
+    },
+    {
+      "id": "pgh.registration.rental_permit",
+      "applies_to": "property.setup",
+      "enforcement": "advisory",
+      "verification_status": "verify_with_counsel",
+      "constraint": {
+        "registration_may_be_required": true
+      },
+      "ui": {
+        "inline_hint": "Pittsburgh has pursued rental registration requirements — confirm whether your properties need to be registered.",
+        "reference": "Pittsburgh has enacted rental registry and permitting requirements for residential rental units, and these have been subject to litigation and revision. Because enforcement status has shifted over time, treat this as a prompt to verify with the city rather than a settled obligation. Registration is typically a per-unit annual filing."
+      },
+      "citation": "Pittsburgh rental registration ordinance — status has been litigated; verify with the City of Pittsburgh."
+    },
+    {
+      "id": "pgh.water.pwsa_billing",
+      "applies_to": "property.water_billing",
+      "enforcement": "advisory",
+      "verification_status": "confident",
+      "constraint": {
+        "provider": "Pittsburgh Water (PWSA)",
+        "billing_cycle": "monthly",
+        "inherits": "pa.utilities.municipal_lien"
+      },
+      "ui": {
+        "inline_hint": "PWSA bills the account holder monthly — bills arrive after the usage period, so rebill on the period, not the receipt date.",
+        "reference": "Pittsburgh Water (PWSA) bills the account holder on a monthly cycle, and like other PA municipal utilities, unpaid charges can attach to the property. Because the bill covers a period that has already elapsed, always record the service period start and end on the charge rather than relying on the date you received it — otherwise a mid-cycle move-out will be prorated against the wrong window."
+      },
+      "citation": "Inherits us-pa: Municipal Claims and Tax Liens Act, 53 P.S. § 7101 et seq."
+    }
+  ]
+}
