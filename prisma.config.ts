@@ -2,7 +2,15 @@ import { defineConfig } from "prisma/config";
 
 // Prisma 7 no longer reads .env implicitly, so load it before the config is
 // evaluated. Node 20+ supports this natively.
-process.loadEnvFile?.(".env");
+//
+// ENV_FILE selects a target: ENV_FILE=.env.neon npm run db:verify
+// Variables already present in the environment are NOT overwritten, so
+// `DATABASE_URL=... npx prisma migrate deploy` still wins over the file.
+try {
+  process.loadEnvFile?.(process.env.ENV_FILE ?? ".env");
+} catch {
+  // No env file present — rely on the ambient environment (CI, containers).
+}
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
