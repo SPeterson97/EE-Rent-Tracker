@@ -7,7 +7,7 @@ something, and checked off when verified, not when merely done.
 **Legend:** 🧍 needs you (an account, a signature, a bank, a decision) ·
 💻 needs code · ✅ verified
 
-Last updated: 2026-08-12 · Through commit `c428723`
+Last updated: 2026-08-12 · Through commit `billing`
 
 ---
 
@@ -61,13 +61,17 @@ Last updated: 2026-08-12 · Through commit `c428723`
 
 ## 2. Blocking — code still to be written
 
-- [ ] 💻 **Write RLS policies.** Only `SELECT` policies exist, so `ee_app`
-      cannot INSERT/UPDATE/DELETE on the 16 protected tables. Fail-closed and
-      safe, but no feature that writes data can ship until these are authored
-      per-endpoint.
-- [ ] 💻 **Charge generation** — rent from `lease_rent_period`, water from
-      entered bills, late fees on the property's grace period. Idempotency keys
-      exist; the job does not.
+- [x] 💻 ~~Write RLS policies~~ — done in `0005_write_policies`. 49 policies;
+      tenants may propose a split but only a landlord can approve one, enforced
+      by the with-check rather than by a handler.
+- [x] 💻 ~~Charge generation~~ — rent with proration, water on the service
+      window, late fees with per-property grace and cap. Idempotent by
+      construction.
+- [ ] 🧍 **Schedule `runNightly()`** (cron, Vercel Cron, or pg_cron). The job
+      exists and is safe to re-run; nothing triggers it.
+- [ ] 🧍 Decide who is alerted when a nightly run reports `errors[]` — one bad
+      lease is skipped rather than aborting the run, so failures are otherwise
+      silent.
 - [ ] 💻 **Stripe Connect onboarding**, ACH collection, and webhook ingestion.
       `stripe_event` and the Connect columns are modelled; nothing calls Stripe.
 - [ ] 💻 **Scheduled jobs.** `purgeStaleAuthCodes()` and
@@ -116,8 +120,13 @@ Things already proven, so they don't need re-litigating.
 - ✅ No account enumeration; login codes and invite tokens never appear in an
       API response
 - ✅ Tenants cannot invite anyone; landlords cannot invite into another org
-- ✅ 47 HTTP + 37 auth + 22 constraint + 11 data-access checks green on both
-      databases
+- ✅ 69 billing + 47 HTTP + 37 auth + 22 constraint + 11 data-access checks
+      green on both databases
+- ✅ Charge generation is idempotent — running rent, late fees, and water
+      generation twice produces exactly one charge each
+- ✅ Late fees respect the property's local timezone, not the server's
+- ✅ Allocations always reconcile to the charge exactly, including thirds
+- ✅ Posted charges cannot be deleted; corrections must be offsetting entries
 
 ---
 

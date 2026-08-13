@@ -30,12 +30,12 @@ from (
            where n.nspname = 'public' and c.relrowsecurity), 16
   union all
   select 'RLS policies',
-         (select count(*) from pg_policies where schemaname = 'public'), 18
+         (select count(*) from pg_policies where schemaname = 'public'), 49
   union all
   select 'app schema functions',
          (select count(*) from pg_proc p
             join pg_namespace n on n.oid = p.pronamespace
-           where n.nspname = 'app'), 9
+           where n.nspname = 'app'), 11
 ) t
 order by status desc, label;
 
