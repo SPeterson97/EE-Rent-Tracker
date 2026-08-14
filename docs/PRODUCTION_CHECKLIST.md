@@ -7,7 +7,7 @@ something, and checked off when verified, not when merely done.
 **Legend:** 🧍 needs you (an account, a signature, a bank, a decision) ·
 💻 needs code · ✅ verified
 
-Last updated: 2026-08-12 · Through commit `billing`
+Last updated: 2026-08-12 · Through commit `a50a18b`
 
 ---
 
@@ -108,8 +108,8 @@ Last updated: 2026-08-12 · Through commit `billing`
 Things already proven, so they don't need re-litigating.
 
 - ✅ Migration applies clean from empty on both local Postgres 16 and Neon
-- ✅ 57+ safety objects present: 27 CHECK constraints, 18 RLS policies, 13
-      partial indexes, 23 triggers, 9 functions, 1 `security_invoker` view
+- ✅ 123 safety objects present: 27 CHECK constraints, 49 RLS policies, 13
+      partial indexes, 23 triggers, 11 functions, 1 `security_invoker` view
 - ✅ Append-only ledger rejects UPDATE and DELETE, via SQL and via Prisma
 - ✅ RLS isolates orgs; `ee_app` sees 0 rows with no user context
 - ✅ Identity does not leak across pooled connections — 12 interleaved
