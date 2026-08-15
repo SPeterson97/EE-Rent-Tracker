@@ -7,7 +7,7 @@ something, and checked off when verified, not when merely done.
 **Legend:** 🧍 needs you (an account, a signature, a bank, a decision) ·
 💻 needs code · ✅ verified
 
-Last updated: 2026-08-12 · Through commit `a50a18b`
+Last updated: 2026-08-14 · Through commit `7ae4ec8`
 
 ---
 
@@ -69,11 +69,17 @@ Last updated: 2026-08-12 · Through commit `a50a18b`
       construction.
 - [ ] 🧍 **Schedule `runNightly()`** (cron, Vercel Cron, or pg_cron). The job
       exists and is safe to re-run; nothing triggers it.
-- [ ] 🧍 Decide who is alerted when a nightly run reports `errors[]` — one bad
-      lease is skipped rather than aborting the run, so failures are otherwise
-      silent.
-- [ ] 💻 **Stripe Connect onboarding**, ACH collection, and webhook ingestion.
-      `stripe_event` and the Connect columns are modelled; nothing calls Stripe.
+- [x] 💻 ~~Alert on nightly-run failures~~ — emails `ALERT_EMAIL` with
+      environment, duration, per-lease errors, and a redacted database host.
+- [x] 💻 ~~Stripe Connect onboarding, ACH collection, webhook ingestion~~ —
+      see docs/PAYMENTS.md. Tested against a fake gateway with real HMAC
+      signatures; not yet exercised against Stripe's live test mode.
+- [ ] 🧍 **Register the Stripe webhook endpoint** and subscribe to
+      `payment_intent.*`, `charge.dispute.created`, `charge.refunded`,
+      `account.updated`. Set `STRIPE_WEBHOOK_SECRET`.
+- [ ] 🧍 **Run Stripe's ACH test account numbers end to end**, especially the
+      failure and dispute ones — the reversal path is the one worth proving
+      against the real API before real money moves.
 - [ ] 💻 **Scheduled jobs.** `purgeStaleAuthCodes()` and
       `purgeExpiredSessions()` exist but nothing runs them. Same for the
       deposit 30-day reminder clock.
@@ -120,8 +126,13 @@ Things already proven, so they don't need re-litigating.
 - ✅ No account enumeration; login codes and invite tokens never appear in an
       API response
 - ✅ Tenants cannot invite anyone; landlords cannot invite into another org
-- ✅ 69 billing + 47 HTTP + 37 auth + 22 constraint + 11 data-access checks
-      green on both databases
+- ✅ 229 checks green locally: 69 billing, 47 HTTP, 37 auth, 37 Stripe, 22
+      constraint, 11 data-access, 6 object counts
+- ✅ A payment never credits the ledger until Stripe confirms settlement
+- ✅ ACH reversal after settlement restores the debt without deleting history
+- ✅ Webhook signatures verified against the raw body; tampered bodies rejected
+- ✅ Duplicate webhook delivery cannot double-credit, including a different
+      event id carrying the same settlement
 - ✅ Charge generation is idempotent — running rent, late fees, and water
       generation twice produces exactly one charge each
 - ✅ Late fees respect the property's local timezone, not the server's
@@ -139,6 +150,9 @@ Decisions made deliberately, recorded so they are not rediscovered as bugs.
   membership, so lifting this is a UI change, not a migration.
 - **`ee_owner` bypasses RLS by design.** Any code path using `ownerDb()` must
   justify itself. Currently: auth (pre-identity), webhook ingestion, jobs.
+- **Stripe is verified against a fake, not live test mode.** The port is
+  narrow and the fake models ACH's delayed settlement, but the live API has
+  not been exercised — see the checklist item above.
 - **Rate limiting is per-address and per-IP in the database.** Adequate at this
   scale; a distributed limiter would be needed at much higher volume.
 - **Jurisdiction rules are reference data, not legal advice.** Several
