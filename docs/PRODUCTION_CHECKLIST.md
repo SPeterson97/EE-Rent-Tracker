@@ -7,7 +7,7 @@ something, and checked off when verified, not when merely done.
 **Legend:** 🧍 needs you (an account, a signature, a bank, a decision) ·
 💻 needs code · ✅ verified
 
-Last updated: 2026-08-14 · Through commit `7ae4ec8`
+Last updated: 2026-08-15 · Through commit `ef42062`
 
 ---
 
@@ -80,27 +80,26 @@ Last updated: 2026-08-14 · Through commit `7ae4ec8`
 - [ ] 🧍 **Run Stripe's ACH test account numbers end to end**, especially the
       failure and dispute ones — the reversal path is the one worth proving
       against the real API before real money moves.
-- [ ] 💻 **Scheduled jobs.** `purgeStaleAuthCodes()` and
-      `purgeExpiredSessions()` exist but nothing runs them. Same for the
-      deposit 30-day reminder clock.
-- [ ] 💻 **Notifications** — rent due, payment received, **payment failed**,
-      late fee posted, deposit deadline approaching.
-- [ ] 💻 **Frontend.** No UI exists; the API is headless today.
-- [ ] 💻 **CI running `db:verify`.** Nothing currently prevents a migration
-      landing without its layer-2 SQL, which would silently drop constraints,
-      triggers, and RLS.
+- [x] 💻 ~~Scheduled jobs~~ — purges, deposit clock, and lease health checks
+      run inside `runMaintenance()` as part of the nightly job.
+- [x] 💻 ~~Notifications~~ — see docs/NOTIFICATIONS.md.
+- [x] 💻 ~~CI~~ — `.github/workflows/ci.yml` provisions the two-role topology,
+      migrates, and fails if any safety object goes missing.
+- [ ] 🧍 **Confirm the first CI run is green on GitHub.** It has been simulated
+      locally without a `.env` file but never executed on a runner.
+- [ ] 💻 **Frontend** — Next.js, landlord surface first (decided 2026-08-14).
 
 ---
 
 ## 3. Should do, not strictly blocking
 
-- [ ] 💻 Session **idle timeout** (absolute 30-day expiry only today).
-- [ ] 💻 Enforce **allocations sum to their charge** — currently unconstrained.
-- [ ] 💻 Enforce that an active lease has a **rent period and at least one
-      tenant**; neither is currently required, and charge generation would
-      silently produce nothing.
-- [ ] 💻 Derive `security_deposit.return_due_on` from move-out + the
-      jurisdiction's deadline instead of leaving it manual.
+- [x] 💻 ~~Session idle timeout~~ — 14 days, configurable; idle sessions are
+      revoked rather than merely rejected.
+- [x] 💻 ~~Allocations sum to their charge~~ — deferred constraint trigger.
+- [x] 💻 ~~Active-lease invariants~~ — reported by `checkLeaseHealth()` and
+      surfaced through the alert email, deliberately not a constraint.
+- [x] 💻 ~~Derive `return_due_on`~~ — from the jurisdiction ruleset when a
+      tenancy ends.
 - [ ] 💻 **CSV export** for your accountant / Schedule E.
 - [ ] 💻 Audit trail for landlord config changes (who lowered the late fee?).
 - [ ] 🧍 Decide the **partial-payment waterfall** and confirm it with counsel.
@@ -126,8 +125,11 @@ Things already proven, so they don't need re-litigating.
 - ✅ No account enumeration; login codes and invite tokens never appear in an
       API response
 - ✅ Tenants cannot invite anyone; landlords cannot invite into another org
-- ✅ 229 checks green locally: 69 billing, 47 HTTP, 37 auth, 37 Stripe, 22
-      constraint, 11 data-access, 6 object counts
+- ✅ 260 checks green locally: 69 billing, 47 HTTP, 37 auth, 37 Stripe, 31
+      notification, 22 constraint, 11 data-access, 6 object counts
+- ✅ Notifications cannot double-send — 8 concurrent sends of one key produce
+      exactly one email
+- ✅ Nightly job runs end to end: charges, late fees, reminders, purges, health
 - ✅ A payment never credits the ledger until Stripe confirms settlement
 - ✅ ACH reversal after settlement restores the debt without deleting history
 - ✅ Webhook signatures verified against the raw body; tampered bodies rejected
