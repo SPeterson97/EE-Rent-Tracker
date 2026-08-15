@@ -9,6 +9,8 @@
 import type { Prisma } from "@prisma/client";
 import { alertJobFailure } from "../alerts.js";
 import { ownerDb } from "../db.js";
+import { notifyLateFee } from "../notifications/events.js";
+import { runMaintenance, type MaintenanceSummary } from "./maintenance.js";
 import { localPeriod, parseDate, periodKey, type BillingPeriod } from "./period.js";
 import {
   planLateFee,
@@ -161,6 +163,7 @@ export interface RunSummary {
   rentSkipped: number;
   lateFeesCreated: number;
   lateFeesSkipped: number;
+  maintenance?: MaintenanceSummary;
   errors: { leaseId: string; stage: string; message: string }[];
 }
 
@@ -260,8 +263,12 @@ export async function assessLateFees(
         continue;
       }
       const result = await postCharge(planned);
-      if (result.created) summary.lateFeesCreated++;
-      else summary.lateFeesSkipped++;
+      if (result.created) {
+        summary.lateFeesCreated++;
+        await notifyLateFee(result.chargeId!);
+      } else {
+        summary.lateFeesSkipped++;
+      }
     } catch (error) {
       summary.errors.push({
         leaseId: lease.id,
@@ -347,12 +354,28 @@ async function runNightlyInner(asOf: Date): Promise<RunSummary> {
   const current = await assessLateFees(period, asOf);
   const prior = await assessLateFees(previous, asOf);
 
+  // Reminders, statutory clocks, and housekeeping. Run after charges exist so
+  // a rent reminder can reference the charge it is reminding about.
+  const maintenance = await runMaintenance(asOf);
+
   return {
     rentCreated: rent.rentCreated,
     rentSkipped: rent.rentSkipped,
     lateFeesCreated: current.lateFeesCreated + prior.lateFeesCreated,
     lateFeesSkipped: current.lateFeesSkipped + prior.lateFeesSkipped,
-    errors: [...rent.errors, ...current.errors, ...prior.errors],
+    maintenance,
+    errors: [
+      ...rent.errors,
+      ...current.errors,
+      ...prior.errors,
+      // Health issues ride the same alert path: a lease that silently bills
+      // nothing is exactly the failure nobody notices.
+      ...maintenance.healthIssues.map((h) => ({
+        leaseId: h.leaseId,
+        stage: "health",
+        message: h.issue,
+      })),
+    ],
   };
 }
 

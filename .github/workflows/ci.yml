@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Match local and production. A different major version can accept SQL
+        # that the real database rejects.
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      # Deliberately distinct roles: the app role must not own the tables, or
+      # row level security silently stops applying. CI proves that holds.
+      DATABASE_URL: postgresql://ee_owner:ci_owner_pw@localhost:5432/ee_rent_tracker
+      SHADOW_DATABASE_URL: postgresql://ee_owner:ci_owner_pw@localhost:5432/ee_rent_tracker_shadow
+      APP_DATABASE_URL: postgresql://ee_app:ci_app_pw@localhost:5432/ee_rent_tracker
+      AUTH_SECRET: ci-only-secret-at-least-thirty-two-characters
+      ALERT_EMAIL: ci@example.test
+      APP_BASE_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Create databases and roles
+        run: |
+          createdb ee_rent_tracker
+          createdb ee_rent_tracker_shadow
+          for db in ee_rent_tracker ee_rent_tracker_shadow; do
+            psql -d "$db" \
+              -v owner_password=ci_owner_pw \
+              -v app_password=ci_app_pw \
+              -v ON_ERROR_STOP=1 \
+              -f db/sql/0000_roles.sql
+          done
+
+      - run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      # The point of this job. Prisma cannot express constraints, triggers,
+      # partial indexes, views, or RLS, so a migration generated without its
+      # hand-written layer would apply cleanly and silently drop all of it.
+      - name: Verify the safety layer survived
+        run: npm run db:verify | tee /tmp/verify.txt && ! grep -q MISSING /tmp/verify.txt
+
+      - run: npm run typecheck
+
+      - name: Seed fixtures
+        run: npm run db:seed
+
+      - name: Constraint rejections and RLS isolation (SQL)
+        run: npm run db:test
+
+      - run: npm run db:check
+      - run: npm run auth:check
+      - run: npm run http:check
+      - run: npm run billing:check
+      - run: npm run stripe:check
+      - run: npm run notifications:check

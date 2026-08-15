@@ -88,6 +88,17 @@ insert into ledger_entry (id, lease_id, entry_type, amount_cents, lease_tenant_i
   ('a0000000-0000-0000-0000-000000000009', 'a0000000-0000-0000-0000-000000000003',
    'payment', -126000, 'a0000000-0000-0000-0000-000000000004', date '2026-09-02', 'Tam ACH');
 
+-- Both leases record a deposit amount, so both need a tracking row: PA requires
+-- deposits over $100 to sit in escrow with the institution disclosed to the
+-- tenant, and checkLeaseHealth() flags an amount with nothing tracking it.
+insert into security_deposit (lease_id, amount_cents, received_on,
+                              escrow_institution_name, escrow_institution_address,
+                              tenant_notified_on) values
+  ('a0000000-0000-0000-0000-000000000003', 240000, date '2026-01-01',
+   'First Keystone Bank', '100 Fifth Ave, Pittsburgh, PA 15222', date '2026-01-03'),
+  ('b0000000-0000-0000-0000-000000000003',  90000, date '2026-03-01',
+   'Cuyahoga Savings', '200 Public Sq, Cleveland, OH 44114', date '2026-03-02');
+
 insert into payment_method (id, user_id, stripe_payment_method_id, kind, last4, is_default) values
   ('a0000000-0000-0000-0000-00000000000a', '33333333-3333-3333-3333-333333333333',
    'pm_test_tam', 'us_bank_account', '6789', true);

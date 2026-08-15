@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import type Stripe from "stripe";
 import { alertJobFailure } from "../alerts.js";
 import { ownerDb } from "../db.js";
+import { notifyPaymentFailed, notifyPaymentReceived } from "../notifications/events.js";
 import { stripeClient } from "./gateway.js";
 
 /**
@@ -172,6 +173,9 @@ async function onSucceeded(intent: Stripe.PaymentIntent): Promise<void> {
       },
     });
   });
+
+  // After commit: a failed email must not roll back a settled payment.
+  await notifyPaymentReceived(payment.id);
 }
 
 async function onFailed(intent: Stripe.PaymentIntent): Promise<void> {
@@ -195,6 +199,13 @@ async function onFailed(intent: Stripe.PaymentIntent): Promise<void> {
     // posted and has to be undone with an offsetting entry.
     await reverseIfCredited(tx, payment.id, payment.leaseId, `ACH failed: ${failure?.code ?? "unknown"}`);
   });
+
+  // Whether this failed before or after settling changes the message: a tenant
+  // whose transfer was returned weeks later thinks they are paid up.
+  const hadCredited = await ownerDb().ledgerEntry.count({
+    where: { paymentId: payment.id, entryType: "reversal" },
+  });
+  await notifyPaymentFailed(payment.id, { afterSettlement: hadCredited > 0 });
 }
 
 async function onReversed(event: Stripe.Event): Promise<void> {
@@ -220,6 +231,8 @@ async function onReversed(event: Stripe.Event): Promise<void> {
     });
     await reverseIfCredited(tx, payment.id, payment.leaseId, `Payment reversed (${event.type})`);
   });
+
+  await notifyPaymentFailed(payment.id, { afterSettlement: true });
 }
 
 /**

@@ -9,6 +9,13 @@ import { ownerDb } from "../db.js";
 
 const SESSION_TTL_DAYS = 30;
 
+/**
+ * Idle timeout. A session unused for this long stops working even though its
+ * absolute expiry has not arrived — an abandoned session on a shared or stolen
+ * device should not stay live for a month.
+ */
+const IDLE_TIMEOUT_DAYS = Number(process.env.SESSION_IDLE_TIMEOUT_DAYS ?? 14);
+
 /** Avoids a database write on every single request. */
 const LAST_SEEN_REFRESH_MS = 5 * 60 * 1000;
 
@@ -82,7 +89,18 @@ export async function validateSession(
   if (session.revokedAt !== null) return null;
   if (session.expiresAt.getTime() <= Date.now()) return null;
 
-  if (Date.now() - session.lastSeenAt.getTime() > LAST_SEEN_REFRESH_MS) {
+  // Idle expiry. Revoked rather than merely rejected, so it also disappears
+  // from the user's active-sessions list and cannot be resurrected.
+  const idleMs = Date.now() - session.lastSeenAt.getTime();
+  if (idleMs > IDLE_TIMEOUT_DAYS * 86_400_000) {
+    await ownerDb().session.update({
+      where: { id: session.id },
+      data: { revokedAt: new Date() },
+    });
+    return null;
+  }
+
+  if (idleMs > LAST_SEEN_REFRESH_MS) {
     await ownerDb().session.update({
       where: { id: session.id },
       data: { lastSeenAt: new Date() },
@@ -131,3 +149,8 @@ export function tokensMatch(a: string, b: string): boolean {
   const bb = Buffer.from(hashToken(b), "hex");
   return ba.length === bb.length && timingSafeEqual(ba, bb);
 }
+
+export const sessionPolicy = {
+  SESSION_TTL_DAYS,
+  IDLE_TIMEOUT_DAYS,
+} as const;
