@@ -7,6 +7,7 @@
  * job, not a user request, and there is no current user to scope RLS against.
  */
 import type { Prisma } from "@prisma/client";
+import { alertJobFailure } from "../alerts.js";
 import { ownerDb } from "../db.js";
 import { localPeriod, parseDate, periodKey, type BillingPeriod } from "./period.js";
 import {
@@ -303,6 +304,36 @@ export async function recordWaterBill(
  * following month.
  */
 export async function runNightly(asOf: Date = new Date()): Promise<RunSummary> {
+  const startedAt = new Date();
+  try {
+    const summary = await runNightlyInner(asOf);
+    if (summary.errors.length > 0) {
+      await alertJobFailure({
+        job: "billing:runNightly",
+        startedAt,
+        itemErrors: summary.errors,
+        context: {
+          asOf: asOf.toISOString(),
+          rentCreated: summary.rentCreated,
+          lateFeesCreated: summary.lateFeesCreated,
+        },
+      });
+    }
+    return summary;
+  } catch (error) {
+    // A total failure means no rent was charged at all this run — the loudest
+    // possible thing short of paging.
+    await alertJobFailure({
+      job: "billing:runNightly",
+      startedAt,
+      fatal: error,
+      context: { asOf: asOf.toISOString() },
+    });
+    throw error;
+  }
+}
+
+async function runNightlyInner(asOf: Date): Promise<RunSummary> {
   // Any property's timezone will do for choosing which month to bill; the
   // per-lease comparisons below re-derive it correctly for each property.
   const anyProperty = await ownerDb().property.findFirst({ select: { timezone: true } });

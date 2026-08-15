@@ -6,6 +6,7 @@
  */
 import type { AddressInfo } from "node:net";
 import { ownerDb } from "./db.js";
+import { purgeTestData } from "./testing/cleanup.js";
 import { CapturingMailer, setMailer } from "./email/mailer.js";
 import { createHttpServer } from "./http/server.js";
 
@@ -87,19 +88,7 @@ function codeFromLastEmail(): string {
 }
 
 async function cleanup() {
-  const users = await ownerDb().appUser.findMany({
-    where: { email: { endsWith: SUFFIX } },
-    select: { id: true },
-  });
-  const ids = users.map((u) => u.id);
-  const orgs = await ownerDb().orgMember.findMany({
-    where: { userId: { in: ids } },
-    select: { orgId: true },
-  });
-  await ownerDb().authCode.deleteMany({ where: { email: { endsWith: SUFFIX } } });
-  await ownerDb().invitation.deleteMany({ where: { email: { endsWith: SUFFIX } } });
-  await ownerDb().appUser.deleteMany({ where: { id: { in: ids } } });
-  await ownerDb().org.deleteMany({ where: { id: { in: orgs.map((o) => o.orgId) } } });
+  await purgeTestData(SUFFIX);
 }
 
 async function main() {
@@ -287,9 +276,6 @@ async function main() {
   check("session no longer works", afterLogout.status === 401);
 
   // -------------------------------------------------------------------
-  await ownerDb().lease.deleteMany({ where: { id: lease.id } });
-  await ownerDb().unit.deleteMany({ where: { id: unit.id } });
-  await ownerDb().property.deleteMany({ where: { id: property.id } });
   await cleanup();
   server.close();
 

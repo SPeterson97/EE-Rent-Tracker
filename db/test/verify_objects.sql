@@ -19,7 +19,7 @@ from (
          (select count(*) from pg_index i
             join pg_class c on c.oid = i.indexrelid
             join pg_namespace n on n.oid = c.relnamespace
-           where n.nspname = 'public' and i.indpred is not null), 13
+           where n.nspname = 'public' and i.indpred is not null), 15
   union all
   select 'triggers',
          (select count(*) from pg_trigger where not tgisinternal), 23

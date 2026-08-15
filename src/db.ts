@@ -17,9 +17,22 @@ import { env } from "./env.js";
  * See MIGRATIONS.md for why the ownership split is what makes RLS real.
  */
 
+/**
+ * Prisma defaults an interactive transaction to a 5 second budget, which is
+ * generous against a local socket and marginal against a managed database in
+ * another region — a three-statement transaction to Neon routinely exceeds it,
+ * and the failure looks like a mysterious commit error rather than latency.
+ */
+const TRANSACTION_TIMEOUT_MS = Number(process.env.DB_TRANSACTION_TIMEOUT_MS ?? 20_000);
+const TRANSACTION_MAX_WAIT_MS = Number(process.env.DB_TRANSACTION_MAX_WAIT_MS ?? 10_000);
+
 function makeClient(connectionString: string): PrismaClient {
   return new PrismaClient({
     adapter: new PrismaPg({ connectionString }),
+    transactionOptions: {
+      timeout: TRANSACTION_TIMEOUT_MS,
+      maxWait: TRANSACTION_MAX_WAIT_MS,
+    },
   });
 }
 
@@ -65,7 +78,7 @@ export async function asUser<T>(
       await tx.$executeRaw`select set_config('app.current_user_id', ${userId}, true)`;
       return fn(tx);
     },
-    { timeout: options?.timeoutMs ?? 15_000 },
+    { timeout: options?.timeoutMs ?? TRANSACTION_TIMEOUT_MS },
   );
 }
 

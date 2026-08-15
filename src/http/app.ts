@@ -9,6 +9,13 @@ import {
   postRequestCode,
   postVerifyCode,
 } from "./routes/auth.js";
+import {
+  getConnectStatus,
+  postBankSetup,
+  postConnectOnboard,
+  postPayment,
+  postStripeWebhook,
+} from "./routes/payments.js";
 import type { RequestContext } from "./context.js";
 
 type Handler = (ctx: RequestContext) => Promise<Response>;
@@ -26,7 +33,21 @@ const ROUTES: Record<string, Partial<Record<string, Handler>>> = {
   "/auth/invitations": { POST: postCreateInvitation },
   "/auth/logout": { POST: postLogout },
   "/auth/me": { GET: getMe },
+
+  "/connect/onboard": { POST: postConnectOnboard },
+  "/connect/status": { GET: getConnectStatus },
+  "/payments/bank-setup": { POST: postBankSetup },
+  "/payments": { POST: postPayment },
+  "/stripe/webhook": { POST: postStripeWebhook },
 };
+
+/**
+ * Stripe signs the raw request body and cannot present a session cookie, so the
+ * webhook route is exempt from the double-submit CSRF check. It is not
+ * unprotected — the signature is the authentication, and it is strictly
+ * stronger than a cookie the browser would send automatically.
+ */
+const CSRF_EXEMPT = new Set(["/stripe/webhook"]);
 
 /**
  * The whole application as one Request -> Response function.
@@ -53,8 +74,10 @@ export async function handle(
 
     // Checked before the handler runs, and before any session work, so a forged
     // cross-site request cannot cause side effects on the way to being rejected.
-    const csrfProblem = csrfFailure(request);
-    if (csrfProblem) return csrfProblem;
+    if (!CSRF_EXEMPT.has(pathname)) {
+      const csrfProblem = csrfFailure(request);
+      if (csrfProblem) return csrfProblem;
+    }
 
     const ctx = await buildContext(request, socketAddress);
     return await handler(ctx);

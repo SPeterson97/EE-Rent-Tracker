@@ -14,7 +14,8 @@
     "http:check": "node --env-file=${ENV_FILE:-.env} node_modules/.bin/tsx src/http.check.ts",
     "dev": "node --env-file=${ENV_FILE:-.env} node_modules/.bin/tsx watch src/http/server.ts",
     "billing:check": "node --env-file=${ENV_FILE:-.env} node_modules/.bin/tsx src/billing.check.ts",
-    "billing:run": "node --env-file=${ENV_FILE:-.env} node_modules/.bin/tsx src/billing/run.ts"
+    "billing:run": "node --env-file=${ENV_FILE:-.env} node_modules/.bin/tsx src/billing/run.ts",
+    "stripe:check": "node --env-file=${ENV_FILE:-.env} node_modules/.bin/tsx src/stripe.check.ts"
   },
   "repository": {
     "type": "git",
@@ -37,6 +38,7 @@
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "stripe": "^22.5.0"
   }
 }
